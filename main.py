@@ -9,6 +9,8 @@ Provides an arg-parser for command line arguments
 For detailed description of the arguments run:
     python3 main.py --help
 
+    python3 main.py --h5files /isilon/lab-xue/publications/CNNT_paper/data/micro_datasets_paper/Base_All_train.h5 --test_case /isilon/lab-xue/publications/CNNT_paper/data/micro_datasets_paper/Base_Actin_test.h5 --ratio 100 0 0 --global_lr 0.0001 --num_epochs 300 --batch_size 8 --time 16 --width 128 160 --height 128 160 --loss ssim --loss_weights 1.0 --im_value_scale 0 4096 --wandb_entity nhlbi-nih --run_name backbone_training_run_0 --run_notes backbone_default_model_300_epochs
+
 """
 
 import os
@@ -30,6 +32,8 @@ from models.enhancement_model import *
 from running_inference import *
 from data_utils import *
 from utils import *
+from ptflops import get_model_complexity_info
+from thop import profile
 
 # -------------------------------------------------------------------------------------------------
 
@@ -50,8 +54,9 @@ def arg_parser():
 
     # Data type arguments
     parser.add_argument("--h5files", nargs='+', type=str, default=[], help='path to each data file (only h5 files are accepted)')
+    parser.add_argument("--val_case", nargs='+', type=str, default=None, help='special val case. (overrides normal val set)')
     parser.add_argument("--test_case", nargs='+', type=str, default=None, help='special test case. (overrides normal test set)')
-
+    
     # Dataset arguments
     parser.add_argument('--ratio', nargs='+', type=int, default=[90,5,5], help='Ratio (as a percentage) for train/val/test divide of training data. Does allow for not using the entire dataset')
     parser.add_argument("--time", type=int, default=16, help='the max time series length of the input cutout')
@@ -627,10 +632,18 @@ def main():
 
     # load data and create model
     train_set, val_set, test_set, val_set_larger, test_set_larger = load_data(config)
-
+    print('done loading')
     total_steps = (len(train_set[0])//config.batch_size) * len(train_set) * config.num_epochs
     logging.info("Training is performed with enhanced denoising model")
     model = CNNT_enhanced_denoising_runtime(config, total_steps)
+
+    #macs, params = get_model_complexity_info(model, (16, 1, 160, 160), as_strings=True,
+    #                                       print_per_layer_stat=True, verbose=True)
+    x = torch.empty(1, 16, 1, 160, 160)
+    macs, params = profile(model, inputs=(x,))
+
+    print('{:<30}  {:<8}'.format('Computational complexity: ', macs))
+    print('{:<30}  {:<8}'.format('Number of parameters: ', params))
 
     logging.info(generate_model_file_name(model.config))
     torch.multiprocessing.set_sharing_strategy('file_system')

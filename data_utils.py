@@ -29,7 +29,7 @@ def load_data(config):
     train_keys = []
     val_keys = []
     test_keys = []
-
+    print(config.h5files)
     for file in config.h5files:
         if not os.path.exists(file):
             logging.info(f"File not found: {file}")
@@ -44,6 +44,7 @@ def load_data(config):
             exit(-1)
 
         n = len(keys)
+        #print(n)
         if config.fine_samples > 0:
             assert(len(config.h5files) == 1), f"Can only finetune with one train dataset"
             h5files.append(h5file)
@@ -54,10 +55,14 @@ def load_data(config):
             break   # since only one file no need for rest
         random.shuffle((keys))
 
+        #print(keys)
+
         h5files.append(h5file)
         train_keys.append(keys[:int(ratio[0]*n)])
         val_keys.append(keys[int(ratio[0]*n):int((ratio[0]+ratio[1])*n)])
         test_keys.append(keys[int((ratio[0]+ratio[1])*n):int((ratio[0]+ratio[1]+ratio[2])*n)])
+
+        print(f"--> done train data loading")
 
         # make sure there is no empty testing
         if len(test_keys[-1])==0:
@@ -82,7 +87,6 @@ def load_data(config):
                                             area_thres=config.area_thres,
                                             time_scale=config.time_scale)
         )
-
     if config.train_only:
         val_set = []
         val_set_larger = []
@@ -92,6 +96,7 @@ def load_data(config):
         val_set = MicroscopyDataset(h5files=h5files, keys=val_keys,
                                         time_cutout=config.time,
                                         cutout_shape=cutout_shape,
+                                        num_samples_per_file=8,
                                         rng = None,
                                         per_scaling = config.per_scaling,
                                         im_value_scale = config.im_value_scale,
@@ -102,6 +107,7 @@ def load_data(config):
         val_set_larger = MicroscopyDataset(h5files=h5files, keys=val_keys,
                                         time_cutout=config.time,
                                         cutout_shape=cutout_shape_larger,
+                                        num_samples_per_file=8,
                                         rng = None,
                                         per_scaling = config.per_scaling,
                                         im_value_scale = config.im_value_scale,
@@ -112,6 +118,7 @@ def load_data(config):
         test_set = MicroscopyDataset(h5files=h5files, keys=test_keys,
                                         time_cutout=config.time,
                                         cutout_shape=cutout_shape,
+                                        num_samples_per_file=8,
                                         rng = None,
                                         per_scaling = config.per_scaling,
                                         im_value_scale = config.im_value_scale,
@@ -122,12 +129,55 @@ def load_data(config):
         test_set_larger = MicroscopyDataset(h5files=h5files, keys=test_keys,
                                         time_cutout=config.time,
                                         cutout_shape=cutout_shape_larger,
+                                        num_samples_per_file=8,
                                         rng = None,
                                         per_scaling = config.per_scaling,
                                         im_value_scale = config.im_value_scale,
                                         valu_thres=config.valu_thres,
                                         area_thres=config.area_thres,
                                         time_scale = config.time_scale)
+
+    if config.val_case != None:
+
+        h5files = []
+        keyss = []
+        for file in config.val_case:
+
+            try:
+                logging.info(f"reading from file (val_case): {file}")
+                h5file = h5py.File(file,libver='latest',mode='r')
+                keys = list(h5file.keys())
+            except:
+                logging.info(f"Error reading file (val_case): {file}")
+                exit(-1)
+
+            h5files.append(h5file)
+            keyss.append(keys)
+        
+        val_set = MicroscopyDataset(h5files=h5files, keys=keyss,
+                                        time_cutout=config.time,
+                                        cutout_shape=cutout_shape,
+                                        num_samples_per_file=100,
+                                        rng = None,
+                                        per_scaling = config.per_scaling,
+                                        im_value_scale = config.im_value_scale,
+                                        valu_thres=config.valu_thres,
+                                        area_thres=config.area_thres,
+                                        time_scale = config.time_scale,
+                                        val=True)
+        
+        val_set_larger = MicroscopyDataset(h5files=h5files, keys=keyss,
+                                        time_cutout=config.time,
+                                        cutout_shape=cutout_shape_larger,
+                                        num_samples_per_file=100,
+                                        rng = None,
+                                        per_scaling = config.per_scaling,
+                                        im_value_scale = config.im_value_scale,
+                                        valu_thres=config.valu_thres,
+                                        area_thres=config.area_thres,
+                                        time_scale = config.time_scale,
+                                        val=True)
+        #val_set_larger = val_set
 
     if config.test_case != None:
 
@@ -154,7 +204,8 @@ def load_data(config):
                                         im_value_scale = config.im_value_scale,
                                         valu_thres=config.valu_thres,
                                         area_thres=config.area_thres,
-                                        time_scale = config.time_scale)
+                                        time_scale = config.time_scale,
+                                        test=True)
         test_set_larger = test_set
 
     return train_set, val_set, test_set, val_set_larger, test_set_larger
