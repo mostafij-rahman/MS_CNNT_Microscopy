@@ -17,6 +17,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from model import *
+#from model_ms_cnnt import *
 from enhancement_loss import *
 
 # -------------------------------------------------------------------------------------------------
@@ -323,8 +324,8 @@ class CNNT_enhanced_denoising_runtime(CNNT_base_model_runtime):
         C_out = 1
 
         self.pre_cnnt = nn.Sequential(
-            Conv2DExt(C_in, 16, kernel_size=K, stride=S, padding=P, bias=True),
-            Conv2DExt(  16, 32, kernel_size=K, stride=S, padding=P, bias=True)
+            Conv2DExtOrg(C_in, 16, kernel_size=K, stride=S, padding=P, bias=True),
+            Conv2DExtOrg(16, 32, kernel_size=K, stride=S, padding=P, bias=True)
         )
 
         self.cnnt = CNNTUnet(blocks=config.blocks,
@@ -339,8 +340,8 @@ class CNNT_enhanced_denoising_runtime(CNNT_base_model_runtime):
                          dropout_p=D, with_mixer=with_mixer)
 
         self.pos_cnnt = nn.Sequential(
-            Conv2DExt(32,    16, kernel_size=K, stride=S, padding=P, bias=True),
-            Conv2DExt(16, C_out, kernel_size=K, stride=S, padding=P, bias=True)
+            Conv2DExtOrg(32,    16, kernel_size=K, stride=S, padding=P, bias=True),
+            Conv2DExtOrg(16, C_out, kernel_size=K, stride=S, padding=P, bias=True)
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

@@ -40,6 +40,17 @@ class Conv2DExt(nn.Module):
         y = self.conv2d(input.reshape((B*T, C, H, W)))
         #y = self.conv2d(input.view(-1, C, H, W))
         return torch.reshape(y, [B, T, y.shape[1], y.shape[2], y.shape[3]])
+class Conv2DExtOrg(nn.Module):
+    def __init__(self,*args,**kwargs):
+        super().__init__()
+        self.conv2d = nn.Conv2d(*args,**kwargs)
+    def forward(self, input):
+        # requried input to have 5 dimensions
+        B, T, C, H, W = input.shape
+        #input = input.view(-1, C, H, W)
+        y = self.conv2d(input.reshape((B*T, C, H, W)))
+        #y = self.conv2d(input.view(-1, C, H, W))
+        return torch.reshape(y, [B, T, y.shape[1], y.shape[2], y.shape[3]])
     
 class Conv3DExt(nn.Module):
     def __init__(self,*args,**kwargs):

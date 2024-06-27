@@ -99,6 +99,7 @@ class MicroscopyDataset(Dataset):
 
         self.tiff_dict = {}
         #print(len(h5files))
+        
         # Start measuring time
         start_time = time.time()
         '''with ThreadPoolExecutor() as executor:
