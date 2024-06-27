@@ -18,8 +18,8 @@ from torch.utils.data import Dataset
 from utils import *
 
 def process_file(hfile, key, per_scaling, im_value_scale):
-    noisy_data = np.array(hfile[key+"/noisy_im"], dtype=np.float32)
-    clean_data = np.array(hfile[key+"/clean_im"], dtype=np.float32)
+    noisy_data = np.array(hfile[key+"/noisy_im"]).astype(np.float32) #, dtype=np.float32)
+    clean_data = np.array(hfile[key+"/clean_im"]).astype(np.float32) #, dtype=np.float32)
 
     if per_scaling:
         noisy_data = normalize_image(noisy_data, percentiles=(1.5, 99.5), clip=True)
@@ -102,6 +102,7 @@ class MicroscopyDataset(Dataset):
         # Start measuring time
         start_time = time.time()
         
+        
         with ThreadPoolExecutor() as executor:
             futures = []
             for i, hfile in enumerate(h5files):
@@ -114,7 +115,6 @@ class MicroscopyDataset(Dataset):
             for future in futures:
                 key, data_dict = future.result()
                 self.tiff_dict[i][key] = data_dict
-        
         '''
         for i, hfile in enumerate(h5files):
             self.tiff_dict[i] = {}
@@ -124,7 +124,7 @@ class MicroscopyDataset(Dataset):
             #        "noisy_im": np.array(hfile[key+"/noisy_im"], dtype=np.float32),
             #        "clean_im": np.array(hfile[key+"/clean_im"], dtype=np.float32)
             #    } # my addition
-
+            
             for key in keys[i]:
                 self.tiff_dict[i][key] = {}
 
