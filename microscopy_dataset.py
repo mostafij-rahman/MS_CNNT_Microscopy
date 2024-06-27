@@ -98,11 +98,11 @@ class MicroscopyDataset(Dataset):
             self.end_samples[i] = num_samples_per_file*len(self.keys[i]) + self.start_samples[i]
 
         self.tiff_dict = {}
-        #print(len(h5files))
         
         # Start measuring time
         start_time = time.time()
-        '''with ThreadPoolExecutor() as executor:
+        
+        with ThreadPoolExecutor() as executor:
             futures = []
             for i, hfile in enumerate(h5files):
                 self.tiff_dict[i] = {}
@@ -114,16 +114,16 @@ class MicroscopyDataset(Dataset):
             for future in futures:
                 key, data_dict = future.result()
                 self.tiff_dict[i][key] = data_dict
+        
         '''
-
         for i, hfile in enumerate(h5files):
             self.tiff_dict[i] = {}
             print(f"--> start preprocessing {hfile}")
-            '''for key in keys[i]:
-                self.tiff_dict[i][key] = {
-                    "noisy_im": np.array(hfile[key+"/noisy_im"], dtype=np.float32),
-                    "clean_im": np.array(hfile[key+"/clean_im"], dtype=np.float32)
-                }''' # my addition
+            #for key in keys[i]:
+            #    self.tiff_dict[i][key] = {
+            #        "noisy_im": np.array(hfile[key+"/noisy_im"], dtype=np.float32),
+            #        "clean_im": np.array(hfile[key+"/clean_im"], dtype=np.float32)
+            #    } # my addition
 
             for key in keys[i]:
                 self.tiff_dict[i][key] = {}
@@ -140,8 +140,9 @@ class MicroscopyDataset(Dataset):
 
                 self.tiff_dict[i][key]["noisy_im"] = noisy_data
                 self.tiff_dict[i][key]["clean_im"] = clean_data
-
+        '''
         print(f"--> finish preprocessing {hfile}")
+        
         # End measuring time
         end_time = time.time()
 
