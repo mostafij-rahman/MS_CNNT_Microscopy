@@ -12,12 +12,17 @@ In time seried data the noisy_im is 4D
 import numpy as np
 import time
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed, ProcessPoolExecutor
 from torch.utils.data import Dataset
 
 from utils import *
 
 def process_file(hfile, key, per_scaling, im_value_scale):
+
+    #dtype_img = hfile[key+"/noisy_im"].dtype
+    #dtype_gt = hfile[key+"/clean_im"].dtype
+    #if dtype_img.itemsize*8 == 8 or dtype_gt.itemsize*8 == 8:
+    #    print(key, dtype_img, dtype_gt) 
     noisy_data = np.array(hfile[key+"/noisy_im"]).astype(np.float32) #, dtype=np.float32)
     clean_data = np.array(hfile[key+"/clean_im"]).astype(np.float32) #, dtype=np.float32)
 
@@ -40,7 +45,7 @@ class MicroscopyDataset(Dataset):
                     num_samples_per_file=1, rng=None, test=False, 
                     val=False, per_scaling=False, im_value_scale=[0,4096],
                     valu_thres=0.002, area_thres=0.25,
-                    time_scale=0):
+                    time_scale=0, batch_size=10):
         """
         Initilize the denoising dataset
 
@@ -76,6 +81,7 @@ class MicroscopyDataset(Dataset):
         self.valu_thres = valu_thres
         self.area_thres = area_thres
         self.time_scale = time_scale
+        self.batch_size = batch_size
 
         # ------------------------------------------------
 
@@ -103,7 +109,7 @@ class MicroscopyDataset(Dataset):
         start_time = time.time()
         
         
-        with ThreadPoolExecutor() as executor:
+        with ThreadPoolExecutor() as executor: #max_workers=16
             futures = []
             for i, hfile in enumerate(h5files):
                 self.tiff_dict[i] = {}
@@ -112,9 +118,23 @@ class MicroscopyDataset(Dataset):
                 for key in keys[i]:
                     futures.append(executor.submit(process_file, hfile, key, self.per_scaling, self.im_value_scale))
 
-            for future in futures:
-                key, data_dict = future.result()
-                self.tiff_dict[i][key] = data_dict
+                for future in futures:
+                    key, data_dict = future.result()
+                    self.tiff_dict[i][key] = data_dict
+                
+                '''
+                # Batch processing keys
+                batched_keys = [keys[i][j:j+self.batch_size] for j in range(0, len(keys[i]), self.batch_size)]
+
+                for batch_keys in batched_keys:
+                    batch_futures = []
+                    for key in batch_keys:
+                        batch_futures.append(executor.submit(process_file, hfile, key, self.per_scaling, self.im_value_scale))
+                
+                    for future in as_completed(batch_futures):
+                        key, data_dict = future.result()
+                        self.tiff_dict[i][key] = data_dict
+                '''
         '''
         for i, hfile in enumerate(h5files):
             self.tiff_dict[i] = {}

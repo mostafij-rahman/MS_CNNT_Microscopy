@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import torch.utils.checkpoint as cp
+
 from functools import partial
 
 import math
@@ -64,7 +66,7 @@ def act_layer(act, inplace=False, neg_slope=0.2, n_prelu=1):
         raise NotImplementedError('activation layer [%s] is not found' % act)
     return layer
 
-def channel_shuffle(x, groups):
+'''def channel_shuffle(x, groups):
     batchsize, num_channels, height, width = x.data.size()
     channels_per_group = num_channels // groups    
     # reshape
@@ -73,30 +75,34 @@ def channel_shuffle(x, groups):
     x = torch.transpose(x, 1, 2).contiguous()
     # flatten
     x = x.view(batchsize, -1, height, width)
-    return x
+    return x'''
+'''def channel_shuffle(x, groups):
+    batchsize, num_channels, height, width = x.size()
+    channels_per_group = num_channels // groups
+    x = x.view(batchsize, groups, channels_per_group, height, width)
+    x = x.transpose(1, 2).contiguous()
+    x = x.view(batchsize, -1, height, width)
+    return x'''
+
+@torch.jit.script
+def channel_shuffle(x, groups: int):
+    batchsize, num_channels, height, width = x.size()
+    channels_per_group = num_channels // groups
+    x = x.view(batchsize, groups, channels_per_group, height, width).transpose(1, 2).contiguous()
+    return x.view(batchsize, -1, height, width)
 
 #   Multi-scale depth-wise convolution (MSDC)
 class MSDC(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_sizes, stride, activation='relu6', dw_parallel=True):
         super(MSDC, self).__init__()
 
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_sizes = kernel_sizes
-        self.activation = activation
-        self.dw_parallel = dw_parallel
-        self.groups=gcd(self.in_channels,self.out_channels)
         self.dwconvs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(self.in_channels, self.out_channels, kernel_size, stride, kernel_size // 2, groups=self.groups, bias=False),
-                #nn.BatchNorm2d(self.in_channels),
-                #nn.InstanceNorm2d(self.in_channels),
-                act_layer(self.activation, inplace=True)
-                #nn.ReLU6(inplace=True)
+                nn.Conv2d(in_channels, out_channels, kernel_size, stride, kernel_size // 2, groups=gcd(in_channels, out_channels), bias=False),
+                #act_layer(activation, inplace=True)
             )
-            for kernel_size in self.kernel_sizes
+            for kernel_size in kernel_sizes
         ])
-
         self.init_weights('normal')
     
     def init_weights(self, scheme=''):
@@ -104,15 +110,17 @@ class MSDC(nn.Module):
 
     def forward(self, x):
         # Apply the convolution layers in a loop
-        outputs = 0 #[]
-        for dwconv in self.dwconvs:
-            outputs += dwconv(x)
+        #outputs = sum(dwconv(x) for dwconv in self.dwconvs)
             #dw_out = 
             #outputs.append(dw_out)
             #if self.dw_parallel == False:
             #    x = x+dw_out
         # You can return outputs based on what you intend to do with them
         #outputs = channel_shuffle(outputs, self.groups)
+        #return outputs
+        outputs = self.dwconvs[0](x)
+        for dwconv in self.dwconvs[1:]:
+            outputs.add_(dwconv(x))  # In-place addition to reduce memory usage
         return outputs
 
 class MSCB(nn.Module):
@@ -145,17 +153,18 @@ class MSCB(nn.Module):
             #nn.BatchNorm2d(self.ex_channels),
             act_layer(self.activation, inplace=True)
         )'''
-        self.msdc = MSDC(self.ex_channels, self.ex_channels, self.kernel_sizes, self.stride, self.activation, dw_parallel=self.dw_parallel)
+        #self.msdc = nn.Conv2d(self.in_channels, self.out_channels, 3, 1, 1, bias=False)
+        self.msdc = MSDC(self.ex_channels, self.out_channels, self.kernel_sizes, self.stride, self.activation, dw_parallel=self.dw_parallel)
         #if self.add == True:
         self.combined_channels = self.ex_channels*1
         #else:
         #    self.combined_channels = self.ex_channels*self.n_scales
-        self.pconv2 = nn.Sequential(
+        '''self.pconv2 = nn.Sequential(
             # pointwise convolution
-            nn.Conv2d(self.combined_channels, self.out_channels, 1, 1, 0, groups=gcd(self.combined_channels, self.out_channels), bias=False), 
+            nn.Conv2d(self.out_channels, self.out_channels, 1, 1, 0, bias=False)#, #groups=gcd(self.combined_channels, self.out_channels), 
             #nn.InstanceNorm2d(self.combined_channels)
             #nn.BatchNorm2d(self.out_channels),
-        )
+        )'''
         #if self.use_skip_connection and (self.in_channels != self.out_channels):
         #    self.conv1x1 = nn.Conv2d(self.in_channels, self.out_channels, 1, 1, 0, groups=gcd(self.in_channels, self.out_channels), bias=False)
         self.init_weights('normal')
@@ -166,7 +175,8 @@ class MSCB(nn.Module):
     def forward(self, x):
         #pout1 = self.pconv1(x)
         #msdc_outs = self.msdc(x)
-        dout = self.msdc(x)
+        out = self.msdc(x)
+        #dout = cp.checkpoint(self.msdc, x)
         #if self.add == True:
         #dout = 0
         #for dwout in msdc_outs:
@@ -174,7 +184,7 @@ class MSCB(nn.Module):
         #else:
         #    dout = torch.cat(msdc_outs, dim=1)
         #dout = channel_shuffle(dout, gcd(self.combined_channels,self.out_channels))
-        out = self.pconv2(dout)
+        #out = self.pconv2(self.msdc(x))
         #if self.use_skip_connection:
         #    if self.in_channels != self.out_channels:
         #        x = self.conv1x1(x)
@@ -183,19 +193,25 @@ class MSCB(nn.Module):
         return out
         
 #   Multi-scale convolution block (MSCB)
-def MSCBLayer(in_channels, out_channels, n=1, stride=1, kernel_sizes=[3], expansion_factor=1, dw_parallel=True, add=True, activation='relu6'):
+'''def MSCBLayer(in_channels, out_channels, n=1, stride=1, kernel_sizes=[3], expansion_factor=1, dw_parallel=True, add=True, activation='relu6'):
         """
         create a series of multi-scale convolution blocks.
         """
         convs = []
-        mscb = MSCB(in_channels, out_channels, stride, kernel_sizes=kernel_sizes, expansion_factor=expansion_factor, dw_parallel=dw_parallel, add=add, activation=activation)
-        convs.append(mscb)
-        if n > 1:
-            for i in range(1, n):
-                mscb = MSCB(out_channels, out_channels, 1, kernel_sizes=kernel_sizes, expansion_factor=expansion_factor, dw_parallel=dw_parallel, add=add, activation=activation)
-                convs.append(mscb)
-        conv = nn.Sequential(*convs)
-        return conv
+        convs.append(MSCB(in_channels, out_channels, stride, kernel_sizes=kernel_sizes, expansion_factor=expansion_factor, dw_parallel=dw_parallel, add=add, activation=activation))
+        for i in range(1, n):
+            convs.append(MSCB(out_channels, out_channels, 1, kernel_sizes=kernel_sizes, expansion_factor=expansion_factor, dw_parallel=dw_parallel, add=add, activation=activation))
+        return nn.Sequential(*convs)'''
+class MSCBLayer(nn.Module):
+    def __init__(self, in_channels, out_channels, n=1, stride=1, kernel_sizes=[3], expansion_factor=1, dw_parallel=True, add=True, activation='relu6'):
+        super(MSCBLayer, self).__init__()
+        layers = [MSCB(in_channels, out_channels, stride, kernel_sizes, expansion_factor, dw_parallel, add, activation)]
+        for _ in range(1, n):
+            layers.append(MSCB(out_channels, out_channels, 1, kernel_sizes, expansion_factor, dw_parallel, add, activation))
+        self.layers = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.layers(x)
 
 #   Efficient up-convolution block (EUCB)
 class EUCB(nn.Module):

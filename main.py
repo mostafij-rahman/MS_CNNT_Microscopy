@@ -109,6 +109,8 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
     val_dataset_larger = DataLoader(val_set_larger, shuffle=False, pin_memory=False, drop_last=False,
                                 batch_size=config.batch_size, num_workers=2, prefetch_factor=4)
 
+    print('--> done dataloader')
+    
     best_model_wts = copy.deepcopy(model.state_dict())
 
     # TODO: DP -> DDP
@@ -117,6 +119,7 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
         model = nn.DataParallel(model)
 
     model.to(device)
+    
     wandb.watch(model)
 
     if(config.load_path is None and not config.skip_LSUV and config.num_epochs):
@@ -141,6 +144,7 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
     train_sobel_meter = AverageMeter()
     train_ssim_meter = AverageMeter()
     train_ssim3D_meter = AverageMeter()
+    train_psnr_meter = AverageMeter()
 
     best_val_loss = np.inf
 
@@ -149,6 +153,7 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
     sobel_loss_func = Weighted_Sobel_Complex_Loss(device=device)
     ssim_loss_func = Weighted_SSIM_Complex_Loss(device=device)
     ssim3D_loss_func = Weighted_SSIM3D_Complex_Loss(device=device)
+    psnr_func = PSNR()
 
     epoch = 0
     for epoch in range(config.num_epochs):
@@ -166,6 +171,10 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
         train_sobel_meter.reset()
         train_ssim_meter.reset()
         train_ssim3D_meter.reset()
+        train_psnr_meter.reset()
+
+        model.zero_grad()
+                
 
         total_num_batches = len(config.height) * len(train_loader[0])
         with tqdm(total=total_num_batches) as pbar:
@@ -182,10 +191,12 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
 
                 weights=None
 
+                #model.optim.zero_grad()
                 loss, output = compute_loss(model, x, y, weights, config)
                 train_running_loss_meter.update(loss.item(), n=config.batch_size)
 
-                model.zero_grad()
+                #model.zero_grad()
+                
                 loss.backward()
 
                 if(config.clip_grad_norm>0):
@@ -200,12 +211,15 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
                 sobel_loss = sobel_loss_func(output, y, weights=weights)
                 ssim_loss = ssim_loss_func(output, y, weights=weights)
                 ssim3D_loss = ssim3D_loss_func(output, y, weights=weights)
+                psnr_value = psnr_func(output, y)
+
                 train_L1_meter.update(l1_loss.item(), n=config.batch_size)
                 train_sobel_meter.update(sobel_loss.item(), n=config.batch_size)
                 train_ssim_meter.update(ssim_loss.item(), n=config.batch_size)
                 train_ssim3D_meter.update(ssim3D_loss.item(), n=config.batch_size)
+                train_psnr_meter.update(psnr_value.item(), n=config.batch_size)
 
-                wandb.log({"Running, train_loss": loss.item(), "Running, mse_loss": mseloss.item(), "Running, l1_loss": l1_loss.item(), "Running, sobel_loss": sobel_loss.item(), "Running, ssim_loss": ssim_loss.item(), "Running, ssim3D_loss": ssim3D_loss.item()})
+                wandb.log({"Running, train_loss": loss.item(), "Running, mse_loss": mseloss.item(), "Running, l1_loss": l1_loss.item(), "Running, sobel_loss": sobel_loss.item(), "Running, ssim_loss": ssim_loss.item(), "Running, ssim3D_loss": ssim3D_loss.item(), "Running, PSNR": psnr_value.item()})
 
                 if (scheduler is not None) and scheduler_on_batch:
                     scheduler.step()
@@ -216,7 +230,7 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
                 pbar.update(1)
                 B, T, C, H, W = x.shape
                 shape_str = f"torch.Size([{B}, {T}, {C}, {H:3.0f}, {W:3.0f}])"
-                pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, tra, {shape_str}, {train_running_loss_meter.avg:.4f}, {train_mse_meter.avg:.4f}, {train_L1_meter.avg:4f}, {train_sobel_meter.avg:.4f}, {train_ssim_meter.avg:.4f}, {train_ssim3D_meter.avg:.4f}, lr {curr_lr:.8f}')
+                pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, tra, {shape_str}, {train_running_loss_meter.avg:.4f}, {train_mse_meter.avg:.4f}, {train_L1_meter.avg:4f}, {train_sobel_meter.avg:.4f}, {train_ssim_meter.avg:.4f}, {train_ssim3D_meter.avg:.4f}, {train_psnr_meter.avg:.4f}, lr {curr_lr:.8f}')
 
         # update the loss the running mean, so we have a better view of this epoch
         epoch_train_loss = train_running_loss_meter.avg
@@ -225,16 +239,18 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
         epoch_train_sobel_loss = train_sobel_meter.avg
         epoch_train_ssim_loss = train_ssim_meter.avg
         epoch_train_ssim3D_loss = train_ssim3D_meter.avg
-        pbar.set_postfix_str(f'Epoch {epoch}/{config.num_epochs}, tra, {epoch_train_loss:.8f}, {epoch_train_mse_loss:.4f}, {epoch_train_l1_loss:.4f}, {epoch_train_sobel_loss:.4f}, {epoch_train_ssim_loss:.4f}, {epoch_train_ssim3D_loss:.4f}')
+        epoch_train_psnr = train_psnr_meter.avg
+
+        pbar.set_postfix_str(f'Epoch {epoch}/{config.num_epochs}, tra, {epoch_train_loss:.8f}, {epoch_train_mse_loss:.4f}, {epoch_train_l1_loss:.4f}, {epoch_train_sobel_loss:.4f}, {epoch_train_ssim_loss:.4f}, {epoch_train_ssim3D_loss:.4f}, {epoch_train_psnr:.4f}')
 
         # Validation
-        epoch_val_loss, epoch_val_mse_loss, epoch_val_l1_loss, epoch_val_sobel_loss, epoch_val_ssim_loss, epoch_val_ssim3D_loss = eval_validation(model,
+        epoch_val_loss, epoch_val_mse_loss, epoch_val_l1_loss, epoch_val_sobel_loss, epoch_val_ssim_loss, epoch_val_ssim3D_loss, epoch_val_psnr = eval_validation(model,
                                                                                                                                                     epoch,
                                                                                                                                                     device,
                                                                                                                                                     val_dataset,
                                                                                                                                                     config)
 
-        epoch_val_loss_larger, epoch_val_mse_loss_larger, epoch_val_l1_loss_larger, epoch_val_sobel_loss_larger, epoch_val_ssim_loss_larger, epoch_val_ssim3D_loss_larger = eval_validation(model,
+        epoch_val_loss_larger, epoch_val_mse_loss_larger, epoch_val_l1_loss_larger, epoch_val_sobel_loss_larger, epoch_val_ssim_loss_larger, epoch_val_ssim3D_loss_larger, epoch_val_large_psnr = eval_validation(model,
                                                                                                                                                                                                 epoch,
                                                                                                                                                                                                 device,
                                                                                                                                                                                                 val_dataset_larger,
@@ -249,6 +265,7 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
                    "train_sobel_loss": epoch_train_sobel_loss,
                    "train_ssim_loss": epoch_train_ssim_loss,
                    "train_ssim3D_loss": epoch_train_ssim3D_loss,
+                   "train_PSNR": epoch_train_psnr,
 
                    "val_loss": epoch_val_loss,
                    "val_mse_loss": epoch_val_mse_loss,
@@ -256,16 +273,18 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
                    "val_sobel_loss": epoch_val_sobel_loss,
                    "val_ssim_loss": epoch_val_ssim_loss,
                    "val_ssim3D_loss": epoch_val_ssim3D_loss,
+                   "val_psnr": epoch_val_psnr,
 
                    "val_large_FOV_loss": epoch_val_loss_larger,
                    "val_large_FOV_mse_loss": epoch_val_mse_loss_larger,
                    "val_large_FOV_l1_loss": epoch_val_l1_loss_larger,
                    "val_large_FOV_sobel_loss": epoch_val_sobel_loss_larger,
                    "val_large_FOV_ssim_loss": epoch_val_ssim_loss_larger,
-                   "val_large_FOV_ssim3D_loss": epoch_val_ssim3D_loss_larger
+                   "val_large_FOV_ssim3D_loss": epoch_val_ssim3D_loss_larger,
+                   "val_large_psnr": epoch_val_large_psnr
                    }
                   )
-
+         
         # if the scheduler should work on epoch level
         epoch_val_loss_final = (epoch_val_loss_larger+epoch_val_loss)/2 if not config.train_only else epoch_train_loss
         if (scheduler is not None) and (scheduler_on_batch == False):
@@ -285,7 +304,6 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
         # save the model weights every save_cycle
         if epoch % config.save_cycle == 0:
             save_model(model, config, epoch)
-
     # -------------------------------------------------------
     # after the training iteration
     wandb.log({"best_val_loss": best_val_loss})
@@ -338,12 +356,14 @@ def eval_validation(model, epoch, device, val_dataset, config):
     val_sobel_meter = AverageMeter()
     val_ssim_meter = AverageMeter()
     val_ssim3D_meter = AverageMeter()
+    val_psnr_meter = AverageMeter()
 
     mse_loss_func = MSE_Complex_Loss()
     l1_loss_func = Weighted_L1_Complex_Loss()
     sobel_loss_func = Weighted_Sobel_Complex_Loss(device=device)
     ssim_loss_func = Weighted_SSIM_Complex_Loss(device=device)
     ssim3D_loss_func = Weighted_SSIM3D_Complex_Loss(device=device)
+    psnr_func = PSNR()
 
     pbar = tqdm(enumerate(val_dataset), total=len(val_dataset))
 
@@ -372,12 +392,15 @@ def eval_validation(model, epoch, device, val_dataset, config):
             sobel_loss = sobel_loss_func(output, y, weights=weights)
             ssim_loss = ssim_loss_func(output, y, weights=weights)
             ssim3D_loss = ssim3D_loss_func(output, y, weights=weights)
+            psnr_val = psnr_func(output, y)
+
             val_L1_meter.update(l1_loss.item(), n=config.batch_size)
             val_sobel_meter.update(sobel_loss.item(), n=config.batch_size)
             val_ssim_meter.update(ssim_loss.item(), n=config.batch_size)
             val_ssim3D_meter.update(ssim3D_loss.item(), n=config.batch_size)
+            val_psnr_meter.update(psnr_val.item(), n=config.batch_size)
 
-            pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, val, {x.shape}, {val_running_loss_meter.avg:.4f}, {val_mse_meter.avg:.4f}, {val_L1_meter.avg:4f}, {val_sobel_meter.avg:.4f}, {val_ssim_meter.avg:.4f}, {val_ssim3D_meter.avg:.4f}')
+            pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, val, {x.shape}, {val_running_loss_meter.avg:.4f}, {val_mse_meter.avg:.4f}, {val_L1_meter.avg:4f}, {val_sobel_meter.avg:.4f}, {val_ssim_meter.avg:.4f}, {val_ssim3D_meter.avg:.4f}, {val_psnr_meter.avg:.4f}')
 
     epoch_val_loss = val_running_loss_meter.avg
     epoch_val_mse_loss = val_mse_meter.avg
@@ -385,8 +408,9 @@ def eval_validation(model, epoch, device, val_dataset, config):
     epoch_val_sobel_loss = val_sobel_meter.avg
     epoch_val_ssim_loss = val_ssim_meter.avg
     epoch_val_ssim3D_loss = val_ssim3D_meter.avg
+    epoch_val_psnr = val_psnr_meter.avg
 
-    pbar.set_postfix_str(f'Epoch {epoch}/{config.num_epochs}, val, {x.shape}, {epoch_val_loss:.4f}, {epoch_val_mse_loss:.4f}, {epoch_val_l1_loss:4f}, {epoch_val_sobel_loss:.4f}, {epoch_val_ssim_loss:.4f}, {epoch_val_ssim3D_loss:.4f}')
+    pbar.set_postfix_str(f'Epoch {epoch}/{config.num_epochs}, val, {x.shape}, {epoch_val_loss:.4f}, {epoch_val_mse_loss:.4f}, {epoch_val_l1_loss:4f}, {epoch_val_sobel_loss:.4f}, {epoch_val_ssim_loss:.4f}, {epoch_val_ssim3D_loss:.4f}, {epoch_val_psnr:.4f}')
 
     if epoch % config.save_cycle == 0:
         for i in range(0, x.shape[0], config.num_samples_wandb):
@@ -404,7 +428,7 @@ def eval_validation(model, epoch, device, val_dataset, config):
                             output[i:end_i].detach().cpu().numpy(),
                             )
 
-    return epoch_val_loss, epoch_val_mse_loss, epoch_val_l1_loss, epoch_val_sobel_loss, epoch_val_ssim_loss, epoch_val_ssim3D_loss
+    return epoch_val_loss, epoch_val_mse_loss, epoch_val_l1_loss, epoch_val_sobel_loss, epoch_val_ssim_loss, epoch_val_ssim3D_loss, epoch_val_psnr
 
 def eval_test(model, config, test_set):
     # setup
@@ -647,7 +671,7 @@ def main():
 
     logging.info(generate_model_file_name(model.config))
     torch.multiprocessing.set_sharing_strategy('file_system')
-
+    print('--> start training')
     train(model, config, train_set, val_set, test_set, val_set_larger, test_set_larger)
 
 # -------------------------------------------------------------------------------------------------
