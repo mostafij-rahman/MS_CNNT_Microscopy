@@ -44,7 +44,7 @@ def load_data(config):
             exit(-1)
 
         n = len(keys)
-        #print(n)
+        print(n)
         if config.fine_samples > 0:
             assert(len(config.h5files) == 1), f"Can only finetune with one train dataset"
             h5files.append(h5file)
@@ -53,7 +53,7 @@ def load_data(config):
             test_keys.append(keys[-5:])
 
             break   # since only one file no need for rest
-        random.shuffle((keys))
+        random.shuffle((keys)) # commented by me
 
         #print(keys)
 
@@ -79,7 +79,7 @@ def load_data(config):
         train_set.append(MicroscopyDataset(h5files=h5files, keys=train_keys,
                                             time_cutout=config.time,
                                             cutout_shape=hw,
-                                            num_samples_per_file=10,
+                                            num_samples_per_file=8,
                                             rng = None,
                                             per_scaling = config.per_scaling,
                                             im_value_scale = config.im_value_scale,
@@ -97,7 +97,7 @@ def load_data(config):
             val_set = MicroscopyDataset(h5files=h5files, keys=val_keys,
                                             time_cutout=config.time,
                                             cutout_shape=cutout_shape,
-                                            num_samples_per_file=10,
+                                            num_samples_per_file=8,
                                             rng = None,
                                             per_scaling = config.per_scaling,
                                             im_value_scale = config.im_value_scale,
@@ -108,7 +108,7 @@ def load_data(config):
             val_set_larger = MicroscopyDataset(h5files=h5files, keys=val_keys,
                                             time_cutout=config.time,
                                             cutout_shape=cutout_shape_larger,
-                                            num_samples_per_file=10,
+                                            num_samples_per_file=8,
                                             rng = None,
                                             per_scaling = config.per_scaling,
                                             im_value_scale = config.im_value_scale,
@@ -119,7 +119,7 @@ def load_data(config):
             test_set = MicroscopyDataset(h5files=h5files, keys=test_keys,
                                             time_cutout=config.time,
                                             cutout_shape=cutout_shape,
-                                            num_samples_per_file=10,
+                                            num_samples_per_file=8,
                                             rng = None,
                                             per_scaling = config.per_scaling,
                                             im_value_scale = config.im_value_scale,
@@ -130,7 +130,7 @@ def load_data(config):
             test_set_larger = MicroscopyDataset(h5files=h5files, keys=test_keys,
                                             time_cutout=config.time,
                                             cutout_shape=cutout_shape_larger,
-                                            num_samples_per_file=10,
+                                            num_samples_per_file=8,
                                             rng = None,
                                             per_scaling = config.per_scaling,
                                             im_value_scale = config.im_value_scale,
@@ -158,7 +158,7 @@ def load_data(config):
         val_set = MicroscopyDataset(h5files=h5files, keys=keyss,
                                         time_cutout=config.time,
                                         cutout_shape=cutout_shape,
-                                        num_samples_per_file=10,
+                                        num_samples_per_file=8,
                                         rng = None,
                                         per_scaling = config.per_scaling,
                                         im_value_scale = config.im_value_scale,
@@ -170,7 +170,7 @@ def load_data(config):
         val_set_larger = MicroscopyDataset(h5files=h5files, keys=keyss,
                                         time_cutout=config.time,
                                         cutout_shape=cutout_shape_larger,
-                                        num_samples_per_file=10,
+                                        num_samples_per_file=8,
                                         rng = None,
                                         per_scaling = config.per_scaling,
                                         im_value_scale = config.im_value_scale,

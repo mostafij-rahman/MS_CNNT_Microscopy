@@ -99,15 +99,15 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
     for idx, h in enumerate(config.height):
         logging.info(f"--> train dataset {idx}, cutout shape is {train_set[idx].cutout_shape}")
         train_loader.append(
-            DataLoader(train_set[idx], shuffle=True, pin_memory=False, drop_last=True,
-                        batch_size=config.batch_size, num_workers=4, prefetch_factor=4, #os.cpu_count()//len(config.height)
+            DataLoader(train_set[idx], shuffle=True, pin_memory=True, drop_last=True,
+                        batch_size=config.batch_size, num_workers=8, prefetch_factor=4, #os.cpu_count()//len(config.height)
                         persistent_workers=True))
 
-    val_dataset = DataLoader(val_set, shuffle=False, pin_memory=False, drop_last=False,
-                                batch_size=config.batch_size, num_workers=2, prefetch_factor=4)
+    val_dataset = DataLoader(val_set, shuffle=False, pin_memory=True, drop_last=False,
+                                batch_size=config.batch_size, num_workers=8, prefetch_factor=4)
 
-    val_dataset_larger = DataLoader(val_set_larger, shuffle=False, pin_memory=False, drop_last=False,
-                                batch_size=config.batch_size, num_workers=2, prefetch_factor=4)
+    val_dataset_larger = DataLoader(val_set_larger, shuffle=False, pin_memory=True, drop_last=False,
+                                batch_size=config.batch_size, num_workers=8, prefetch_factor=4)
 
     print('--> done dataloader')
     
@@ -153,7 +153,7 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
     sobel_loss_func = Weighted_Sobel_Complex_Loss(device=device)
     ssim_loss_func = Weighted_SSIM_Complex_Loss(device=device)
     ssim3D_loss_func = Weighted_SSIM3D_Complex_Loss(device=device)
-    psnr_func = PSNR()
+    psnr_func = PSNR(device=device)
 
     epoch = 0
     for epoch in range(config.num_epochs):
@@ -230,7 +230,7 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
                 pbar.update(1)
                 B, T, C, H, W = x.shape
                 shape_str = f"torch.Size([{B}, {T}, {C}, {H:3.0f}, {W:3.0f}])"
-                pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, tra, {shape_str}, {train_running_loss_meter.avg:.4f}, {train_mse_meter.avg:.4f}, {train_L1_meter.avg:4f}, {train_sobel_meter.avg:.4f}, {train_ssim_meter.avg:.4f}, {train_ssim3D_meter.avg:.4f}, {train_psnr_meter.avg:.4f}, lr {curr_lr:.8f}')
+                pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, tra, {shape_str}, {train_running_loss_meter.avg:.3f}, {train_mse_meter.avg:.3f}, {train_L1_meter.avg:.3f}, {train_sobel_meter.avg:.3f}, {train_ssim_meter.avg:.3f}, {train_ssim3D_meter.avg:.3f}, {train_psnr_meter.avg:.3f}, lr {curr_lr:.8f}')
 
         # update the loss the running mean, so we have a better view of this epoch
         epoch_train_loss = train_running_loss_meter.avg
@@ -363,7 +363,7 @@ def eval_validation(model, epoch, device, val_dataset, config):
     sobel_loss_func = Weighted_Sobel_Complex_Loss(device=device)
     ssim_loss_func = Weighted_SSIM_Complex_Loss(device=device)
     ssim3D_loss_func = Weighted_SSIM3D_Complex_Loss(device=device)
-    psnr_func = PSNR()
+    psnr_func = PSNR(device=device)
 
     pbar = tqdm(enumerate(val_dataset), total=len(val_dataset))
 

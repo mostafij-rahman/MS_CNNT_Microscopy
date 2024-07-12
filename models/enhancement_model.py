@@ -139,7 +139,7 @@ class CNNT_base_model_runtime(nn.Module):
                 loss_f.add_loss(Weighted_L1_Complex_Loss(), w=loss_weights[ind])
 
             elif(l == "ssim"):
-                loss_f.add_loss(Weighted_SSIM_Complex_Loss(reduction='mean', window_size=7, device=device), w=loss_weights[ind])
+                loss_f.add_loss(Weighted_SSIM_Complex_Loss(reduction='elementwise_mean', window_size=7, device=device), w=loss_weights[ind])
 
             elif(l == "ssim3D"):
                 loss_f.add_loss(Weighted_SSIM3D_Complex_Loss(reduction='mean', window_size=7, device=device), w=loss_weights[ind])
