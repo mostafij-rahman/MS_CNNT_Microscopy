@@ -147,11 +147,10 @@ class MicroscopyDataset(Dataset):
             self.end_samples[i] = num_samples_per_file*len(self.keys[i]) + self.start_samples[i]
 
         self.tiff_dict = {}
-        
+        # Start measuring time
+        start_time = time.time()
+            
         with ThreadPoolExecutor() as executor: #max_workers=16 #max_workers=os.cpu_count()//2
-            # Start measuring time
-            start_time = time.time()
-
             futures = []
             for i, hfile in enumerate(h5files):
                 self.tiff_dict[i] = {}
@@ -166,7 +165,7 @@ class MicroscopyDataset(Dataset):
                     #futures.append(executor.submit(process_file1, hfile[key + "/clean_im"], self.per_scaling, self.im_value_scale))
 
                 print('**************************************************************')
-                j = 0
+                #j = 0
                 #results = [future.result() for future in futures]
                 #for j, key in enumerate(keys):
                 #    print(j,'=',key)
@@ -175,18 +174,19 @@ class MicroscopyDataset(Dataset):
                 for future in futures:#as_completed(futures):
                     try:
                         key, data_dict = future.result()
-                        j = j + 1
+                        #j = j + 1
                         #print(j,'=',key)
                         self.tiff_dict[i][key] = data_dict
                     except Exception as e:
                         print(f"Error processing future: {e}")
                 print(f"--> finish preprocessing {hfile}")
-        
-                # End measuring time
-                end_time = time.time()
-                # Calculate and print elapsed time
-                elapsed_time = end_time - start_time
-                print(f"Time taken: {elapsed_time} seconds")
+
+        # End measuring time
+        end_time = time.time()
+        # Calculate and print elapsed time
+        elapsed_time = end_time - start_time
+        print(f"Time taken: {elapsed_time} seconds")
+
         '''
         for i, hfile in enumerate(h5files):
             self.tiff_dict[i] = {}

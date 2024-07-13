@@ -151,8 +151,8 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
     mse_loss_func = MSE_Complex_Loss()
     l1_loss_func = Weighted_L1_Complex_Loss()
     sobel_loss_func = Weighted_Sobel_Complex_Loss(device=device)
-    ssim_loss_func = Weighted_SSIM_Complex_Loss(device=device)
-    ssim3D_loss_func = Weighted_SSIM3D_Complex_Loss(device=device)
+    ssim_loss_func = Weighted_SSIM_Complex_Loss(reduction='elementwise_mean', device=device)
+    ssim3D_loss_func = Weighted_SSIM3D_Complex_Loss(reduction='elementwise_mean', device=device)
     psnr_func = PSNR(device=device)
 
     epoch = 0
@@ -230,7 +230,7 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
                 pbar.update(1)
                 B, T, C, H, W = x.shape
                 shape_str = f"torch.Size([{B}, {T}, {C}, {H:3.0f}, {W:3.0f}])"
-                pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, tra, {shape_str}, {train_running_loss_meter.avg:.3f}, {train_mse_meter.avg:.3f}, {train_L1_meter.avg:.3f}, {train_sobel_meter.avg:.3f}, {train_ssim_meter.avg:.3f}, {train_ssim3D_meter.avg:.3f}, {train_psnr_meter.avg:.3f}, lr {curr_lr:.8f}')
+                pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, tra, {shape_str}, {train_running_loss_meter.avg:.3f}, {train_mse_meter.avg:.3f}, {train_L1_meter.avg:.3f}, {train_ssim_meter.avg:.3f}, {train_ssim3D_meter.avg:.3f}, {train_sobel_meter.avg:.3f}, {train_psnr_meter.avg:.3f}, lr {curr_lr:.8f}')
 
         # update the loss the running mean, so we have a better view of this epoch
         epoch_train_loss = train_running_loss_meter.avg
@@ -400,7 +400,7 @@ def eval_validation(model, epoch, device, val_dataset, config):
             val_ssim3D_meter.update(ssim3D_loss.item(), n=config.batch_size)
             val_psnr_meter.update(psnr_val.item(), n=config.batch_size)
 
-            pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, val, {x.shape}, {val_running_loss_meter.avg:.4f}, {val_mse_meter.avg:.4f}, {val_L1_meter.avg:4f}, {val_sobel_meter.avg:.4f}, {val_ssim_meter.avg:.4f}, {val_ssim3D_meter.avg:.4f}, {val_psnr_meter.avg:.4f}')
+            pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, val, {x.shape}, {val_running_loss_meter.avg:.4f}, {val_mse_meter.avg:.4f}, {val_L1_meter.avg:4f}, {val_ssim_meter.avg:.4f}, {val_ssim3D_meter.avg:.4f}, {val_sobel_meter.avg:.4f}, {val_psnr_meter.avg:.4f}')
 
     epoch_val_loss = val_running_loss_meter.avg
     epoch_val_mse_loss = val_mse_meter.avg
@@ -410,7 +410,7 @@ def eval_validation(model, epoch, device, val_dataset, config):
     epoch_val_ssim3D_loss = val_ssim3D_meter.avg
     epoch_val_psnr = val_psnr_meter.avg
 
-    pbar.set_postfix_str(f'Epoch {epoch}/{config.num_epochs}, val, {x.shape}, {epoch_val_loss:.4f}, {epoch_val_mse_loss:.4f}, {epoch_val_l1_loss:4f}, {epoch_val_sobel_loss:.4f}, {epoch_val_ssim_loss:.4f}, {epoch_val_ssim3D_loss:.4f}, {epoch_val_psnr:.4f}')
+    pbar.set_postfix_str(f'Epoch {epoch}/{config.num_epochs}, val, {x.shape}, {epoch_val_loss:.4f}, {epoch_val_mse_loss:.4f}, {epoch_val_l1_loss:4f}, {epoch_val_ssim_loss:.4f}, {epoch_val_ssim3D_loss:.4f}, {epoch_val_sobel_loss:.4f}, {epoch_val_psnr:.4f}')
 
     if epoch % config.save_cycle == 0:
         for i in range(0, x.shape[0], config.num_samples_wandb):
@@ -501,7 +501,7 @@ def eval_test_image(model, config, test_set):
     ssim_loss_func_gpu = Weighted_SSIM_Complex_Loss(device='cuda')
     ssim3D_loss_func_cpu = Weighted_SSIM3D_Complex_Loss(device='cpu')
     ssim3D_loss_func_gpu = Weighted_SSIM3D_Complex_Loss(device='cuda')
-    psnr_func = PSNR()
+    psnr_func = PSNR(device='cuda')
 
     logging.info(f"Evaluating and loggin the custom test set")
 

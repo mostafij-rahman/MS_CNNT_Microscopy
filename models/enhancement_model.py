@@ -16,8 +16,8 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from model import *
-#from model_ms_cnnt import *
+#from model import *
+from model_ms_cnnt import *
 from enhancement_loss import *
 
 # -------------------------------------------------------------------------------------------------
@@ -142,7 +142,7 @@ class CNNT_base_model_runtime(nn.Module):
                 loss_f.add_loss(Weighted_SSIM_Complex_Loss(reduction='elementwise_mean', window_size=7, device=device), w=loss_weights[ind])
 
             elif(l == "ssim3D"):
-                loss_f.add_loss(Weighted_SSIM3D_Complex_Loss(reduction='mean', window_size=7, device=device), w=loss_weights[ind])
+                loss_f.add_loss(Weighted_SSIM3D_Complex_Loss(reduction='elementwise_mean', window_size=7, device=device), w=loss_weights[ind])
 
             elif(l == "sobel"):
                 loss_f.add_loss(Weighted_Sobel_Complex_Loss(device=device), w=loss_weights[ind])
@@ -368,7 +368,7 @@ class CNNT_enhanced_denoising_runtime(CNNT_base_model_runtime):
 
         pos = self.pos_cnnt(output)
 
-        return pos
+        return pos.sigmoid()
 
     def compute_loss(self, output, targets, weights):
         # compute loss
