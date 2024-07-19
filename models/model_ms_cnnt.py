@@ -307,8 +307,8 @@ class CNNTUnet(nn.Module):
     The full CNN_Transformer model for Unet architecture
     """
 
-    def __init__(self, blocks, blocks_per_set, H, W, C_in, T, C_out, n_head=8, norm_mode='layer', kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), dropout_p=0.1, with_mixer=True, kernel_sizes=[3], expansion_factor=1, dw_parallel=True, add=True, activation='relu6'):
-        """CNNT Unet configuration
+    def __init__(self, blocks, blocks_per_set, H, W, C_in, T, C_out, n_head=8, norm_mode='layer', kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), dropout_p=0.1, with_mixer=True, kernel_sizes=[1,3,5], expansion_factor=1, dw_parallel=True, add=True, activation='relu6'):
+        """MSCNNT Unet configuration
 
         Args:
             blocks (list): number of output channels for every resolution layers; e.g. [16, 32, 64] means two downsample layers with 16 and 32 channels and the bridge layers have 64 channel outputs

@@ -32,6 +32,7 @@ from models.enhancement_model import *
 from running_inference import *
 from data_utils import *
 from utils import *
+from models.fpn import *
 from ptflops import get_model_complexity_info
 from thop import profile
 
@@ -81,6 +82,23 @@ args = arg_parser()
 
 # -------------------------------------------------------------------------------------------------
 
+def get_seg_loss(enhanced_image, seg, seg_criterion, device='cpu'):
+    
+    B, T, C, H, W = enhanced_image.shape
+    # segment the enhanced image
+    seg_input = enhanced_image.reshape((B*T, C, H, W)).to(device)
+    if seg_input.size(1) == 1:
+        seg_input = seg_input.repeat(1, 3, 1, 1)
+    seg_output = seg(seg_input).to(device)
+
+    # build seg output
+    target = (get_NoGT_target(seg_output)).data.to(device)
+
+    # calculate seg. loss
+    seg_loss = seg_criterion(seg_output, target)
+
+    return seg_loss
+
 def compute_loss(model, x, y, weights, config):
 
     output = model(x)
@@ -100,14 +118,14 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
         logging.info(f"--> train dataset {idx}, cutout shape is {train_set[idx].cutout_shape}")
         train_loader.append(
             DataLoader(train_set[idx], shuffle=True, pin_memory=True, drop_last=True,
-                        batch_size=config.batch_size, num_workers=8, prefetch_factor=4, #os.cpu_count()//len(config.height)
+                        batch_size=config.batch_size, num_workers=12, prefetch_factor=4, #os.cpu_count()//len(config.height)
                         persistent_workers=True))
 
     val_dataset = DataLoader(val_set, shuffle=False, pin_memory=True, drop_last=False,
-                                batch_size=config.batch_size, num_workers=8, prefetch_factor=4)
+                                batch_size=config.batch_size, num_workers=12, prefetch_factor=4)
 
     val_dataset_larger = DataLoader(val_set_larger, shuffle=False, pin_memory=True, drop_last=False,
-                                batch_size=config.batch_size, num_workers=8, prefetch_factor=4)
+                                batch_size=config.batch_size, num_workers=12, prefetch_factor=4)
 
     print('--> done dataloader')
     
@@ -115,10 +133,17 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
 
     # TODO: DP -> DDP
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    #seg = fpn(2)
+    
     if config.dp:
         model = nn.DataParallel(model)
+        #seg = nn.DataParallel(seg)
 
     model.to(device)
+    #seg.to(device)
+
+    #seg_criterion = FocalLoss(gamma=2).to(device)
     
     wandb.watch(model)
 
@@ -139,21 +164,21 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
 
     # set up meters to compute running average
     train_running_loss_meter = AverageMeter()
-    train_mse_meter = AverageMeter()
+    #train_mse_meter = AverageMeter()
     train_L1_meter = AverageMeter()
-    train_sobel_meter = AverageMeter()
-    train_ssim_meter = AverageMeter()
-    train_ssim3D_meter = AverageMeter()
-    train_psnr_meter = AverageMeter()
+    #train_sobel_meter = AverageMeter()
+    #train_ssim_meter = AverageMeter()
+    #train_ssim3D_meter = AverageMeter()
+    #train_psnr_meter = AverageMeter()
 
     best_val_loss = np.inf
 
-    mse_loss_func = MSE_Complex_Loss()
-    l1_loss_func = Weighted_L1_Complex_Loss()
-    sobel_loss_func = Weighted_Sobel_Complex_Loss(device=device)
-    ssim_loss_func = Weighted_SSIM_Complex_Loss(reduction='elementwise_mean', device=device)
-    ssim3D_loss_func = Weighted_SSIM3D_Complex_Loss(reduction='elementwise_mean', device=device)
-    psnr_func = PSNR(device=device)
+    #mse_loss_func = MSE_Complex_Loss(reduction='mean', device=device)
+    l1_loss_func = Weighted_L1_Complex_Loss(reduction='mean', device=device)
+    #sobel_loss_func = Weighted_Sobel_Complex_Loss(device=device)
+    #ssim_loss_func = Weighted_SSIM_Complex_Loss(reduction='elementwise_mean', device=device)
+    #ssim3D_loss_func = Weighted_SSIM_Complex_Loss(reduction='elementwise_mean', device=device) #Weighted_SSIM3D_Complex_Loss(reduction='elementwise_mean', device=device)
+    #psnr_func = PSNR(device=device)
 
     epoch = 0
     for epoch in range(config.num_epochs):
@@ -166,12 +191,12 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
             train_loader_iter.append(iter(train_loader[h]))
 
         train_running_loss_meter.reset()
-        train_mse_meter.reset()
+        #train_mse_meter.reset()
         train_L1_meter.reset()
-        train_sobel_meter.reset()
-        train_ssim_meter.reset()
-        train_ssim3D_meter.reset()
-        train_psnr_meter.reset()
+        #train_sobel_meter.reset()
+        #train_ssim_meter.reset()
+        #train_ssim3D_meter.reset()
+        #train_psnr_meter.reset()
 
         model.zero_grad()
                 
@@ -193,6 +218,10 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
 
                 #model.optim.zero_grad()
                 loss, output = compute_loss(model, x, y, weights, config)
+                #loss_seg = get_seg_loss(output, seg, seg_criterion, device=device)
+
+                #loss = loss + 0.1 * loss_seg
+
                 train_running_loss_meter.update(loss.item(), n=config.batch_size)
 
                 #model.zero_grad()
@@ -204,22 +233,23 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
 
                 model.module.optim.step() if config.dp else model.optim.step()
 
-                mseloss = mse_loss_func(output, y)
-                train_mse_meter.update(mseloss.item(), n=config.batch_size)
+                #mseloss = mse_loss_func(output, y)
+                #train_mse_meter.update(mseloss.item(), n=config.batch_size)
 
                 l1_loss = l1_loss_func(output, y, weights=weights)
-                sobel_loss = sobel_loss_func(output, y, weights=weights)
-                ssim_loss = ssim_loss_func(output, y, weights=weights)
-                ssim3D_loss = ssim3D_loss_func(output, y, weights=weights)
-                psnr_value = psnr_func(output, y)
+                #sobel_loss = sobel_loss_func(output, y, weights=weights)
+                #ssim_loss = ssim_loss_func(output, y, weights=weights)
+                #ssim3D_loss = ssim3D_loss_func(output, y, weights=weights)
+                #psnr_value = psnr_func(output, y)
 
                 train_L1_meter.update(l1_loss.item(), n=config.batch_size)
-                train_sobel_meter.update(sobel_loss.item(), n=config.batch_size)
-                train_ssim_meter.update(ssim_loss.item(), n=config.batch_size)
-                train_ssim3D_meter.update(ssim3D_loss.item(), n=config.batch_size)
-                train_psnr_meter.update(psnr_value.item(), n=config.batch_size)
+                #train_sobel_meter.update(sobel_loss.item(), n=config.batch_size)
+                #train_ssim_meter.update(ssim_loss.item(), n=config.batch_size)
+                #train_ssim3D_meter.update(ssim3D_loss.item(), n=config.batch_size)
+                #train_psnr_meter.update(psnr_value.item(), n=config.batch_size)
 
-                wandb.log({"Running, train_loss": loss.item(), "Running, mse_loss": mseloss.item(), "Running, l1_loss": l1_loss.item(), "Running, sobel_loss": sobel_loss.item(), "Running, ssim_loss": ssim_loss.item(), "Running, ssim3D_loss": ssim3D_loss.item(), "Running, PSNR": psnr_value.item()})
+                #wandb.log({"Running, train_loss": loss.item(), "Running, mse_loss": mseloss.item(), "Running, l1_loss": l1_loss.item(), "Running, sobel_loss": sobel_loss.item(), "Running, ssim_loss": ssim_loss.item(), "Running, ssim3D_loss": ssim3D_loss.item(), "Running, PSNR": psnr_value.item()})
+                wandb.log({"Running, train_loss": loss.item(), "Running, l1_loss": l1_loss.item()})#, "Running, ssim_loss": ssim_loss.item()})
 
                 if (scheduler is not None) and scheduler_on_batch:
                     scheduler.step()
@@ -230,18 +260,20 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
                 pbar.update(1)
                 B, T, C, H, W = x.shape
                 shape_str = f"torch.Size([{B}, {T}, {C}, {H:3.0f}, {W:3.0f}])"
-                pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, tra, {shape_str}, {train_running_loss_meter.avg:.3f}, {train_mse_meter.avg:.3f}, {train_L1_meter.avg:.3f}, {train_ssim_meter.avg:.3f}, {train_ssim3D_meter.avg:.3f}, {train_sobel_meter.avg:.3f}, {train_psnr_meter.avg:.3f}, lr {curr_lr:.8f}')
+                #pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, tra, {shape_str}, {train_running_loss_meter.avg:.3f}, {train_mse_meter.avg:.3f}, {train_L1_meter.avg:.3f}, {train_ssim_meter.avg:.3f}, {train_ssim3D_meter.avg:.3f}, {train_sobel_meter.avg:.4f}, {train_psnr_meter.avg:.3f}, lr {curr_lr:.8f}')
+                pbar.set_description(f'Epoch {epoch}/{config.num_epochs}, tra, {shape_str}, {train_running_loss_meter.avg:.3f}, {train_L1_meter.avg:.3f}, lr {curr_lr:.8f}')
 
         # update the loss the running mean, so we have a better view of this epoch
         epoch_train_loss = train_running_loss_meter.avg
-        epoch_train_mse_loss = train_mse_meter.avg
+        #epoch_train_mse_loss = train_mse_meter.avg
         epoch_train_l1_loss = train_L1_meter.avg
-        epoch_train_sobel_loss = train_sobel_meter.avg
-        epoch_train_ssim_loss = train_ssim_meter.avg
-        epoch_train_ssim3D_loss = train_ssim3D_meter.avg
-        epoch_train_psnr = train_psnr_meter.avg
+        #epoch_train_sobel_loss = train_sobel_meter.avg
+        #epoch_train_ssim_loss = train_ssim_meter.avg
+        #epoch_train_ssim3D_loss = train_ssim3D_meter.avg
+        #epoch_train_psnr = train_psnr_meter.avg
 
-        pbar.set_postfix_str(f'Epoch {epoch}/{config.num_epochs}, tra, {epoch_train_loss:.8f}, {epoch_train_mse_loss:.4f}, {epoch_train_l1_loss:.4f}, {epoch_train_sobel_loss:.4f}, {epoch_train_ssim_loss:.4f}, {epoch_train_ssim3D_loss:.4f}, {epoch_train_psnr:.4f}')
+        #pbar.set_postfix_str(f'Epoch {epoch}/{config.num_epochs}, tra, {epoch_train_loss:.8f}, {epoch_train_mse_loss:.4f}, {epoch_train_l1_loss:.4f}, {epoch_train_sobel_loss:.4f}, {epoch_train_ssim_loss:.4f}, {epoch_train_ssim3D_loss:.4f}, {epoch_train_psnr:.4f}')
+        pbar.set_postfix_str(f'Epoch {epoch}/{config.num_epochs}, tra, {epoch_train_loss:.8f}, {epoch_train_l1_loss:.4f}')
 
         # Validation
         epoch_val_loss, epoch_val_mse_loss, epoch_val_l1_loss, epoch_val_sobel_loss, epoch_val_ssim_loss, epoch_val_ssim3D_loss, epoch_val_psnr = eval_validation(model,
@@ -260,12 +292,12 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
         # log in wandb separately for hyper parameter tuning
         wandb.log({"epoch": epoch,
                    "train_loss": epoch_train_loss,
-                   "train_mse_loss": epoch_train_mse_loss,
+                   #"train_mse_loss": epoch_train_mse_loss,
                    "train_l1_loss": epoch_train_l1_loss,
-                   "train_sobel_loss": epoch_train_sobel_loss,
-                   "train_ssim_loss": epoch_train_ssim_loss,
-                   "train_ssim3D_loss": epoch_train_ssim3D_loss,
-                   "train_PSNR": epoch_train_psnr,
+                   #"train_sobel_loss": epoch_train_sobel_loss,
+                   #"train_ssim_loss": epoch_train_ssim_loss,
+                   #"train_ssim3D_loss": epoch_train_ssim3D_loss,
+                   #"train_PSNR": epoch_train_psnr,
 
                    "val_loss": epoch_val_loss,
                    "val_mse_loss": epoch_val_mse_loss,
@@ -358,11 +390,12 @@ def eval_validation(model, epoch, device, val_dataset, config):
     val_ssim3D_meter = AverageMeter()
     val_psnr_meter = AverageMeter()
 
-    mse_loss_func = MSE_Complex_Loss()
-    l1_loss_func = Weighted_L1_Complex_Loss()
+    mse_loss_func = MSE_Complex_Loss(reduction='mean', device=device)
+    l1_loss_func = Weighted_L1_Complex_Loss(reduction='mean', device=device)
     sobel_loss_func = Weighted_Sobel_Complex_Loss(device=device)
     ssim_loss_func = Weighted_SSIM_Complex_Loss(device=device)
     ssim3D_loss_func = Weighted_SSIM3D_Complex_Loss(device=device)
+    #ssim3D_loss_func = Weighted_MSSSIM_Complex_Loss(device=device)
     psnr_func = PSNR(device=device)
 
     pbar = tqdm(enumerate(val_dataset), total=len(val_dataset))
@@ -441,7 +474,7 @@ def eval_test(model, config, test_set):
 
     logging.info(f"Evaluating the test set, {test_set.cutout_shape}")
 
-    mse_loss_func = MSE_Complex_Loss()
+    mse_loss_func = MSE_Complex_Loss(reduction='mean', device=device)
     test_loss_meter = AverageMeter()
     test_mse_loss_meter = AverageMeter()
 
@@ -493,8 +526,8 @@ def eval_test_image(model, config, test_set):
     test_ssim3D_meter = AverageMeter()
     test_psnr_meter = AverageMeter()
 
-    mse_loss_func = MSE_Complex_Loss()
-    l1_loss_func = Weighted_L1_Complex_Loss()
+    mse_loss_func = MSE_Complex_Loss(reduction='mean', device='cuda')
+    l1_loss_func = Weighted_L1_Complex_Loss(reduction='mean', device='cuda')
     sobel_loss_func_cpu = Weighted_Sobel_Complex_Loss(device='cpu')
     sobel_loss_func_gpu = Weighted_Sobel_Complex_Loss(device='cuda')
     ssim_loss_func_cpu = Weighted_SSIM_Complex_Loss(device='cpu')
@@ -551,7 +584,7 @@ def eval_test_image(model, config, test_set):
             test_ssim3D_meter.update(ssim3D_loss.item())
             test_psnr_meter.update(psnr_val.item())
 
-            pbar.set_description(f'Test, {x.shape}, {test_running_loss_meter.avg:.4f}, {test_mse_meter.avg:.4f}, {test_L1_meter.avg:4f}, {test_sobel_meter.avg:.4f}, {test_ssim_meter.avg:.4f}, {test_ssim3D_meter.avg:.4f}, {test_psnr_meter.avg:.4f}')
+            pbar.set_description(f'Test, {x.shape}, {test_running_loss_meter.avg:.4f}, {test_mse_meter.avg:.4f}, {test_L1_meter.avg:4f}, {test_ssim_meter.avg:.4f}, {test_ssim3D_meter.avg:.4f}, {test_sobel_meter.avg:.4f}, {test_psnr_meter.avg:.4f}')
 
             x = x[0,:,0].cpu().detach().numpy()
             y = y[0,:,0].cpu().detach().numpy()

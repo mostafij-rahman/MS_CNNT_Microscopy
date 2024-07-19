@@ -95,14 +95,19 @@ def channel_shuffle(x, groups: int):
 class MSDC(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_sizes, stride, activation='relu6', dw_parallel=True):
         super(MSDC, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
 
         self.dwconvs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(in_channels, out_channels, kernel_size, stride, kernel_size // 2, groups=gcd(in_channels, out_channels), bias=False),
+                nn.Conv2d(self.in_channels, self.out_channels, kernel_size, stride, kernel_size // 2, groups=gcd(in_channels, out_channels), bias=False), #gcd(in_channels, out_channels), bias=False),
                 #act_layer(activation, inplace=True)
             )
             for kernel_size in kernel_sizes
         ])
+
+        '''if self.in_channels != self.out_channels:
+            self.pconv = nn.Conv2d(self.in_channels, self.out_channels, 1, 1, 0, bias=False)'''
         self.init_weights('normal')
     
     def init_weights(self, scheme=''):
@@ -121,6 +126,8 @@ class MSDC(nn.Module):
         outputs = self.dwconvs[0](x)
         for dwconv in self.dwconvs[1:]:
             outputs.add_(dwconv(x))  # In-place addition to reduce memory usage
+        '''if self.in_channels != self.out_channels:
+            return self.pconv(outputs)'''
         return outputs
 
 class MSCB(nn.Module):
@@ -175,7 +182,7 @@ class MSCB(nn.Module):
     def forward(self, x):
         #pout1 = self.pconv1(x)
         #msdc_outs = self.msdc(x)
-        out = self.msdc(x)
+        dout = self.msdc(x)
         #dout = cp.checkpoint(self.msdc, x)
         #if self.add == True:
         #dout = 0
@@ -183,14 +190,14 @@ class MSCB(nn.Module):
         #    dout = dout + dwout
         #else:
         #    dout = torch.cat(msdc_outs, dim=1)
-        #dout = channel_shuffle(dout, gcd(self.combined_channels,self.out_channels))
+        dout = channel_shuffle(dout, gcd(self.combined_channels,self.out_channels))
         #out = self.pconv2(self.msdc(x))
         #if self.use_skip_connection:
         #    if self.in_channels != self.out_channels:
         #        x = self.conv1x1(x)
         #    return x + out
         #else:
-        return out
+        return dout #self.msdc(x)
         
 #   Multi-scale convolution block (MSCB)
 '''def MSCBLayer(in_channels, out_channels, n=1, stride=1, kernel_sizes=[3], expansion_factor=1, dw_parallel=True, add=True, activation='relu6'):

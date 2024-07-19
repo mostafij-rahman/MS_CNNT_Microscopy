@@ -18,6 +18,7 @@ import torch.optim as optim
 
 #from model import *
 from model_ms_cnnt import *
+#from models.models_msunet3d import MSUNet3D
 from enhancement_loss import *
 
 # -------------------------------------------------------------------------------------------------
@@ -133,19 +134,28 @@ class CNNT_base_model_runtime(nn.Module):
         loss_f = Image_Enhancement_Combined_Loss()
         for ind, l in enumerate(loss):
             if(l == "mse"):
-                loss_f.add_loss(Weighted_MSE_Complex_Loss(), w=loss_weights[ind])
-
+                loss_f.add_loss(Weighted_MSE_Complex_Loss(reduction='mean', device=device), w=loss_weights[ind])
+            
+            elif(l == 'charbonnier'):
+                loss_f.add_loss(CharbonnierLoss().to(device), w=loss_weights[ind])
+                                
             elif(l == "l1"):
-                loss_f.add_loss(Weighted_L1_Complex_Loss(), w=loss_weights[ind])
+                loss_f.add_loss(Weighted_L1_Complex_Loss(reduction='mean', device=device), w=loss_weights[ind])
 
-            elif(l == "ssim"):
+            elif(l == "ssim"): #elementwise_mean
                 loss_f.add_loss(Weighted_SSIM_Complex_Loss(reduction='elementwise_mean', window_size=7, device=device), w=loss_weights[ind])
+            
+            elif(l == "msssim"):
+                loss_f.add_loss(Weighted_MSSSIM_Complex_Loss(reduction='elementwise_mean', window_size=7, device=device), w=loss_weights[ind])
 
             elif(l == "ssim3D"):
-                loss_f.add_loss(Weighted_SSIM3D_Complex_Loss(reduction='elementwise_mean', window_size=7, device=device), w=loss_weights[ind])
+                loss_f.add_loss(Weighted_SSIM3D_Complex_Loss_Prev(reduction='mean', window_size=7, device=device), w=loss_weights[ind])
 
             elif(l == "sobel"):
                 loss_f.add_loss(Weighted_Sobel_Complex_Loss(device=device), w=loss_weights[ind])
+            
+            elif(l == "bcl"):
+                loss_f.add_loss(BrightnessContrastLoss().to(device), w=loss_weights[ind])
 
             else:
                 raise f"loss type not supported:{l}"
@@ -327,7 +337,7 @@ class CNNT_enhanced_denoising_runtime(CNNT_base_model_runtime):
             Conv2DExtOrg(C_in, 16, kernel_size=K, stride=S, padding=P, bias=True),
             Conv2DExtOrg(16, 32, kernel_size=K, stride=S, padding=P, bias=True)
         )
-
+        #self.cnnt = MSUNet3D(in_channels=32, out_channels=32)
         self.cnnt = CNNTUnet(blocks=config.blocks,
                          blocks_per_set=config.blocks_per_set,
                          H=self.height, W=self.width,
@@ -338,6 +348,7 @@ class CNNT_enhanced_denoising_runtime(CNNT_base_model_runtime):
                          norm_mode=config.norm_mode,
                          kernel_size=(K,K), stride=(S,S), padding=(P,P),
                          dropout_p=D, with_mixer=with_mixer)
+        
 
         self.pos_cnnt = nn.Sequential(
             Conv2DExtOrg(32,    16, kernel_size=K, stride=S, padding=P, bias=True),
@@ -361,12 +372,18 @@ class CNNT_enhanced_denoising_runtime(CNNT_base_model_runtime):
     def forward(self, x):
         # Pass the input to CNNT and work with the output
 
-        pre = self.pre_cnnt(x)
-
+        pre = self.pre_cnnt(x)#.permute(0,2,1,3,4)
+        #print(pre.shape)
         noise = self.cnnt(pre)
         output = noise if self.no_residual else pre - noise
+        #print(output.shape)
+        #output = output.permute(0,2,1,3,4)
+        #print(output.shape)
 
         pos = self.pos_cnnt(output)
+
+        #print(pos.shape)
+
 
         return pos.sigmoid()
 
