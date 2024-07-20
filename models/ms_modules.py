@@ -161,17 +161,17 @@ class MSCB(nn.Module):
             act_layer(self.activation, inplace=True)
         )'''
         #self.msdc = nn.Conv2d(self.in_channels, self.out_channels, 3, 1, 1, bias=False)
-        self.msdc = MSDC(self.ex_channels, self.out_channels, self.kernel_sizes, self.stride, self.activation, dw_parallel=self.dw_parallel)
+        self.msdc = MSDC(self.ex_channels, self.ex_channels, self.kernel_sizes, self.stride, self.activation, dw_parallel=self.dw_parallel)
         #if self.add == True:
         self.combined_channels = self.ex_channels*1
         #else:
         #    self.combined_channels = self.ex_channels*self.n_scales
-        '''self.pconv2 = nn.Sequential(
+        self.pconv2 = nn.Sequential(
             # pointwise convolution
-            nn.Conv2d(self.out_channels, self.out_channels, 1, 1, 0, bias=False)#, #groups=gcd(self.combined_channels, self.out_channels), 
+            nn.Conv2d(self.combined_channels, self.out_channels, 1, 1, 0, groups=gcd(self.combined_channels, self.out_channels), bias=False)#, #groups=gcd(self.combined_channels, self.out_channels), 
             #nn.InstanceNorm2d(self.combined_channels)
             #nn.BatchNorm2d(self.out_channels),
-        )'''
+        )
         #if self.use_skip_connection and (self.in_channels != self.out_channels):
         #    self.conv1x1 = nn.Conv2d(self.in_channels, self.out_channels, 1, 1, 0, groups=gcd(self.in_channels, self.out_channels), bias=False)
         self.init_weights('normal')
@@ -191,7 +191,7 @@ class MSCB(nn.Module):
         #else:
         #    dout = torch.cat(msdc_outs, dim=1)
         dout = channel_shuffle(dout, gcd(self.combined_channels,self.out_channels))
-        #out = self.pconv2(self.msdc(x))
+        dout = self.pconv2(dout)
         #if self.use_skip_connection:
         #    if self.in_channels != self.out_channels:
         #        x = self.conv1x1(x)
