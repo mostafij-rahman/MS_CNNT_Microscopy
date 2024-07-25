@@ -111,6 +111,7 @@ class MicroscopyDataset(Dataset):
 
         self.keys = keys
         self.N_files = len(self.keys)
+        print(self.N_files)
 
         self.time_cutout = time_cutout
         self.cutout_shape = cutout_shape

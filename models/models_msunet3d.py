@@ -11,6 +11,11 @@ def channel_shuffle(x, groups: int):
     x = x.view(batchsize, groups, channels_per_group, depth, height, width).transpose(1, 2).contiguous()
     return x.view(batchsize, -1, depth, height, width)
 
+def gcd(a, b):
+    while b:
+        a, b = b, a % b
+    return a
+
 class MSDC3D(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_sizes, stride, activation='relu6', dw_parallel=True):
         super(MSDC3D, self).__init__()
@@ -18,13 +23,13 @@ class MSDC3D(nn.Module):
         self.out_channels = out_channels
 
         self.dwconvs = nn.ModuleList([
-            nn.Conv3d(self.in_channels, self.in_channels, kernel_size, stride, kernel_size // 2, groups=in_channels, bias=False)
+            nn.Conv3d(self.in_channels, self.out_channels, kernel_size, stride, kernel_size // 2, groups=gcd(self.in_channels, self.out_channels), bias=False)
             for kernel_size in kernel_sizes
         ])
 
-        self.pointwise_conv = nn.Conv3d(in_channels, out_channels, 1, bias=False)
-        self.batch_norm = nn.BatchNorm3d(out_channels)
-        self.activation = nn.ReLU(inplace=True) if activation == 'relu' else nn.ReLU6(inplace=True)
+        #self.pointwise_conv = nn.Conv3d(in_channels, out_channels, 1, bias=False)
+        #self.batch_norm = nn.BatchNorm3d(out_channels)
+        #self.activation = nn.ReLU(inplace=True) if activation == 'relu' else nn.ReLU6(inplace=True)
         
         self.init_weights('normal')
     
@@ -34,11 +39,11 @@ class MSDC3D(nn.Module):
 
     def forward(self, x):
         depthwise_outs = [dwconv(x) for dwconv in self.dwconvs]
-        summed = sum(depthwise_outs)
-        pointwise_out = self.pointwise_conv(summed)
-        output = self.batch_norm(pointwise_out)
-        output = self.activation(output)
-        return output
+        depthwise_outs = sum(depthwise_outs)
+        #pointwise_out = self.pointwise_conv(summed)
+        #output = self.batch_norm(pointwise_out)
+        #output = self.activation(output)
+        return depthwise_outs
 
 class MSCB3D(nn.Module):
     """
@@ -58,7 +63,18 @@ class MSCB3D(nn.Module):
         self.n_scales = len(self.kernel_sizes)
 
         self.ex_channels = int(self.in_channels * self.expansion_factor)
-        self.msdc = MSDC3D(self.ex_channels, self.out_channels, self.kernel_sizes, self.stride, self.activation, dw_parallel=self.dw_parallel)
+        self.msdc = MSDC3D(self.in_channels, self.ex_channels, self.kernel_sizes, self.stride, self.activation, dw_parallel=self.dw_parallel)
+
+        self.combined_channels = self.ex_channels*1
+        #else:
+        #    self.combined_channels = self.ex_channels*self.n_scales
+        self.pconv2 = nn.Sequential(
+            # pointwise convolution
+            nn.Conv3d(self.combined_channels, self.out_channels, 1, 1, 0, groups=gcd(self.combined_channels, self.out_channels), bias=False)#, #groups=gcd(self.combined_channels, self.out_channels), 
+            #nn.InstanceNorm3d(self.out_channels)
+            #nn.BatchNorm3d(self.out_channels),
+        )
+
         self.init_weights('normal')
     
     def init_weights(self, scheme=''):
@@ -67,6 +83,8 @@ class MSCB3D(nn.Module):
 
     def forward(self, x):
         out = self.msdc(x)
+        out = channel_shuffle(out, gcd(self.in_channels,self.combined_channels))
+        out = self.pconv2(out)
         return out
 
 class MSCBLayer3D(nn.Module):

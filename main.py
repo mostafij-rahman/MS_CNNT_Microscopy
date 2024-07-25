@@ -71,6 +71,10 @@ def arg_parser():
     parser.add_argument("--num_samples_wandb", type=int, default=4, help='number of samples uploaded to wandb as video')
     parser.add_argument("--num_test_samples_wandb", type=int, default=2, help='number of test samples uploaded to wandb as video')
 
+    # Inference arguments
+    parser.add_argument("--test_only", action="store_true", help='no train or val. used to infer only')
+
+
     parser = add_shared_args(parser=parser)
 
     # General arguments
@@ -643,6 +647,9 @@ def prepare_training(config, run_name=None):
     # If more than 1 gpu, then we can use DP
     # TODO: go from DP to DDP
     logging.info(f"model is trained on {torch.cuda.device_count()} gpus ...")
+    #if config.test_only:
+    #    config["dp"] = False
+    #else:
     config["dp"] = torch.cuda.device_count() > 1
 
     if(config.num_samples_wandb > config.batch_size):
@@ -690,7 +697,11 @@ def main():
     # load data and create model
     train_set, val_set, test_set, val_set_larger, test_set_larger = load_data(config)
     print('done loading')
-    total_steps = (len(train_set[0])//config.batch_size) * len(train_set) * config.num_epochs
+    if config.test_only:
+        total_steps = 0    
+    else:
+        total_steps = (len(train_set[0])//config.batch_size) * len(train_set) * config.num_epochs
+
     logging.info("Training is performed with enhanced denoising model")
     model = CNNT_enhanced_denoising_runtime(config, total_steps)
 
@@ -704,8 +715,15 @@ def main():
 
     logging.info(generate_model_file_name(model.config))
     torch.multiprocessing.set_sharing_strategy('file_system')
-    print('--> start training')
-    train(model, config, train_set, val_set, test_set, val_set_larger, test_set_larger)
+    if config.test_only:
+        if config.dp:
+            model = nn.DataParallel(model)
+           
+        print('--> start evaluation')
+        eval_test_image(model, config, test_set)
+    else:
+        print('--> start training')
+        train(model, config, train_set, val_set, test_set, val_set_larger, test_set_larger)
 
 # -------------------------------------------------------------------------------------------------
 

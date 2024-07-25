@@ -19,6 +19,7 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 from ms_modules import MSCBLayer, MSDC
+from models_msunet3d import MSCBLayer3D
 
 def compute_conv_output_shape(h_w, kernel_size, stride, pad, dilation):
     """
@@ -36,15 +37,18 @@ class Conv2DExt(nn.Module):
         super().__init__()
         #self.conv2d = nn.Conv2d(*args,**kwargs)
         self.conv2d = MSCBLayer(in_channels, out_channels, n=1, stride=1, kernel_sizes=kernel_sizes, expansion_factor=expansion_factor, dw_parallel=dw_parallel, add=add, activation=activation)
+        #self.conv3d = MSCBLayer3D(in_channels, out_channels, n=1, stride=1, kernel_sizes=kernel_sizes, expansion_factor=expansion_factor, dw_parallel=dw_parallel, add=add, activation=activation)
         #self.conv2d = MSDC(in_channels, out_channels, kernel_sizes, 1, activation, dw_parallel=dw_parallel)   
     def forward(self, input):
         # requried input to have 5 dimensions
         B, T, C, H, W = input.shape
         #input = input.view(-1, C, H, W)
-        y = self.conv2d(input.reshape((B*T, C, H, W)))
+        y = self.conv2d(input.view((B*T, C, H, W)))#reshape((B*T, C, H, W)))
+        #y = self.conv3d(torch.permute(input, (0, 2, 1, 3, 4)))
+        #return torch.permute(y, (0, 2, 1, 3, 4))
 
         #y = self.conv2d(input.view(-1, C, H, W))
-        return torch.reshape(y, [B, T, y.shape[1], y.shape[2], y.shape[3]])
+        return y.view((B, T, y.shape[1], y.shape[2], y.shape[3]))#torch.reshape(y, [B, T, y.shape[1], y.shape[2], y.shape[3]])
 
 class Conv2DExtOrg(nn.Module):
     def __init__(self, *args,**kwargs):
@@ -145,11 +149,17 @@ class CnnSelfAttention(nn.Module):
 
         B, nh, T, hc, H_prime, W_prime = k.shape
 
+        #print(q.shape, k.shape)
+
         # Compute attention matrix, use the matrix broadcasing 
         # https://pytorch.org/docs/stable/notes/broadcasting.html
         # (B, nh, T, hc, H', W') x (B, nh, hc, H', W', T) -> (B, nh, T, T)
         att = (q.view(B, nh, T, hc*H_prime*W_prime) @ k.view(B, nh, T, hc*H_prime*W_prime).transpose(-2, -1)) * torch.tensor(1.0 / math.sqrt(hc*H_prime*W_prime))
-
+        #q = q.contiguous().reshape(B, nh, T, hc * H_prime * W_prime)
+        #k = k.contiguous().reshape(B, nh, T, hc * H_prime * W_prime)
+        
+        #att = (q @ k.transpose(-2, -1)) * torch.tensor(1.0 / math.sqrt(hc * H_prime * W_prime))
+    
         #att = (q.view(B, nh, T, hc*H_prime*W_prime) @ k.view(B, nh, T, hc*H_prime*W_prime).transpose(-2, -1))
         
         # if causality is needed, apply the mask
@@ -161,6 +171,8 @@ class CnnSelfAttention(nn.Module):
         
         # (B, nh, T, T) * (B, nh, T, hc, H', W')
         y = att @ v.view(B, nh, T, hc*H_prime*W_prime)
+        #v = v.contiguous().reshape(B, nh, T, hc * H_prime * W_prime)
+        #y = att @ v
         y = y.transpose(1, 2).contiguous().view(B, T, self.output_channels, H_prime, W_prime)
         y = self.output_proj(y)
         return y
@@ -214,9 +226,9 @@ class CnnTransformer(nn.Module):
         self.with_mixer = with_mixer
         if(self.with_mixer):
             self.mlp = nn.Sequential(
-                Conv2DExtOrg(output_channels, 4*output_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=True),
+                Conv2DExtOrg(output_channels, 4*output_channels, kernel_size=(1,1), stride=stride, padding=(0,0), bias=True),
                 nn.GELU(),
-                Conv2DExtOrg(4*output_channels, output_channels, kernel_size=kernel_size, stride=stride, padding=padding, bias=True),
+                Conv2DExtOrg(4*output_channels, output_channels, kernel_size=(1,1), stride=stride, padding=(0,0), bias=True),
                 nn.Dropout(dropout_p),
             )
 
@@ -239,6 +251,8 @@ class CnnTransformer(nn.Module):
         elif(self.norm_mode=="instance"):
             B, T, C, H, W = x.shape
             x1 = torch.reshape(self.in1(torch.reshape(x, (B*T, C, H, W))), x.shape)
+
+            #print(x1.shape)
             x = x + self.attn(x1)
 
             if(self.with_mixer):
@@ -307,7 +321,7 @@ class CNNTUnet(nn.Module):
     The full CNN_Transformer model for Unet architecture
     """
 
-    def __init__(self, blocks, blocks_per_set, H, W, C_in, T, C_out, n_head=8, norm_mode='layer', kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), dropout_p=0.1, with_mixer=True, kernel_sizes=[1,3,5], expansion_factor=1, dw_parallel=True, add=True, activation='relu6'):
+    def __init__(self, blocks, blocks_per_set, H, W, C_in, T, C_out, n_head=8, norm_mode='layer', kernel_size=(3, 3), stride=(1, 1), padding=(1, 1), dropout_p=0.1, with_mixer=True, kernel_sizes=[1,3], expansion_factor=1, dw_parallel=True, add=True, activation='relu6'):
         """MSCNNT Unet configuration
 
         Args:

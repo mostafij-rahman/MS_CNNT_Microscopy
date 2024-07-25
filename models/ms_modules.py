@@ -100,7 +100,7 @@ class MSDC(nn.Module):
 
         self.dwconvs = nn.ModuleList([
             nn.Sequential(
-                nn.Conv2d(self.in_channels, self.out_channels, kernel_size, stride, kernel_size // 2, groups=gcd(in_channels, out_channels), bias=False), #gcd(in_channels, out_channels), bias=False),
+                nn.Conv2d(self.in_channels, self.out_channels, kernel_size, stride, kernel_size // 2, groups=gcd(self.in_channels, self.out_channels), bias=True), #gcd(in_channels, out_channels), bias=False),
                 #act_layer(activation, inplace=True)
             )
             for kernel_size in kernel_sizes
@@ -161,14 +161,14 @@ class MSCB(nn.Module):
             act_layer(self.activation, inplace=True)
         )'''
         #self.msdc = nn.Conv2d(self.in_channels, self.out_channels, 3, 1, 1, bias=False)
-        self.msdc = MSDC(self.ex_channels, self.ex_channels, self.kernel_sizes, self.stride, self.activation, dw_parallel=self.dw_parallel)
+        self.msdc = MSDC(self.in_channels, self.ex_channels, self.kernel_sizes, self.stride, self.activation, dw_parallel=self.dw_parallel)
         #if self.add == True:
         self.combined_channels = self.ex_channels*1
         #else:
         #    self.combined_channels = self.ex_channels*self.n_scales
         self.pconv2 = nn.Sequential(
             # pointwise convolution
-            nn.Conv2d(self.combined_channels, self.out_channels, 1, 1, 0, groups=gcd(self.combined_channels, self.out_channels), bias=False)#, #groups=gcd(self.combined_channels, self.out_channels), 
+            nn.Conv2d(self.combined_channels, self.out_channels, 1, 1, 0, bias=True)#, #groups=gcd(self.combined_channels, self.out_channels), 
             #nn.InstanceNorm2d(self.combined_channels)
             #nn.BatchNorm2d(self.out_channels),
         )
@@ -182,7 +182,6 @@ class MSCB(nn.Module):
     def forward(self, x):
         #pout1 = self.pconv1(x)
         #msdc_outs = self.msdc(x)
-        dout = self.msdc(x)
         #dout = cp.checkpoint(self.msdc, x)
         #if self.add == True:
         #dout = 0
@@ -190,14 +189,12 @@ class MSCB(nn.Module):
         #    dout = dout + dwout
         #else:
         #    dout = torch.cat(msdc_outs, dim=1)
-        dout = channel_shuffle(dout, gcd(self.combined_channels,self.out_channels))
-        dout = self.pconv2(dout)
         #if self.use_skip_connection:
         #    if self.in_channels != self.out_channels:
         #        x = self.conv1x1(x)
         #    return x + out
         #else:
-        return dout #self.msdc(x)
+        return self.pconv2(channel_shuffle(self.msdc(x), gcd(self.in_channels,self.combined_channels))) #self.msdc(x)
         
 #   Multi-scale convolution block (MSCB)
 '''def MSCBLayer(in_channels, out_channels, n=1, stride=1, kernel_sizes=[3], expansion_factor=1, dw_parallel=True, add=True, activation='relu6'):
