@@ -120,6 +120,7 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
     train_loader = []
     for idx, h in enumerate(config.height):
         logging.info(f"--> train dataset {idx}, cutout shape is {train_set[idx].cutout_shape}")
+        print(train_set[idx].__len__())
         train_loader.append(
             DataLoader(train_set[idx], shuffle=True, pin_memory=True, drop_last=True,
                         batch_size=config.batch_size, num_workers=12, prefetch_factor=4, #os.cpu_count()//len(config.height)

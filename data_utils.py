@@ -58,6 +58,7 @@ def load_data(config):
             if config.fine_samples > 0:
                 assert(len(config.h5files) == 1), f"Can only finetune with one train dataset"
                 h5files.append(h5file)
+                #print(config.fine_samples)
                 train_keys.append(keys[:config.fine_samples])
                 val_keys.append(keys[-5:])
                 test_keys.append(keys[-5:])
