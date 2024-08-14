@@ -63,6 +63,9 @@ def arg_parser():
     parser.add_argument("--time", type=int, default=16, help='the max time series length of the input cutout')
     parser.add_argument('--height', nargs='+', type=int, default=[128, 160], help='height of the image patch cutout')
     parser.add_argument('--width', nargs='+', type=int, default=[128, 160], help='width of the image patch cutout')
+    parser.add_argument("--num_patches_per_train_sample", type=int, default=8, help='number of patches per train sample')
+    parser.add_argument("--num_patches_per_val_sample", type=int, default=8, help='number of patches per val sample')
+
 
     # Training arguments
     parser.add_argument("--num_epochs", type=int, default=30, help='number of epochs to train for')
@@ -139,16 +142,16 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
     # TODO: DP -> DDP
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    seg = fpn(2)
+    #seg = fpn(2)
     
     if config.dp:
         model = nn.DataParallel(model)
-        seg = nn.DataParallel(seg)
+        #seg = nn.DataParallel(seg)
 
     model.to(device)
-    seg.to(device)
+    #seg.to(device)
 
-    seg_criterion = FocalLoss(gamma=2).to(device)
+    #seg_criterion = FocalLoss(gamma=2).to(device)
     
     wandb.watch(model)
 
@@ -223,9 +226,9 @@ def train(model, config, train_set, val_set, test_set, val_set_larger, test_set_
 
                 #model.optim.zero_grad()
                 loss, output = compute_loss(model, x, y, weights, config)
-                loss_seg = get_seg_loss(output, seg, seg_criterion, device=device)
+                #loss_seg = get_seg_loss(output, seg, seg_criterion, device=device)
 
-                loss = loss + 0.25 * loss_seg
+                #loss = loss + 0.25 * loss_seg
 
                 train_running_loss_meter.update(loss.item(), n=config.batch_size)
 
